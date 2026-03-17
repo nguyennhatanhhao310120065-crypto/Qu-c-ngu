@@ -1,0 +1,7 @@
+{
+  "name": "AkatsukiApp",
+  "description": "AI-powered Listening Test Generation Platform for IELTS, TOEIC, and VSTEP. Automatically generate complete listening sections from audio files.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
