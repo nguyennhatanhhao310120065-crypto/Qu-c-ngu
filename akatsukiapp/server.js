@@ -46,171 +46,281 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // ---- Prompt Builder: generates prompt for a SINGLE question type ----
-function buildSingleTypePrompt(transcript, examType, questionType, count) {
+function buildSingleTypePrompt(transcript, examType, questionType, count, partLabel, customInstruction) {
   const typeInstructions = {
     mcq: `### MULTIPLE CHOICE (type: "mcq")
-- Write a clear question stem ending with "?"
-- Provide EXACTLY 4 options: ["A. ...", "B. ...", "C. ...", "D. ..."]
-- Only ONE option is the correct answer
-- Set the "answer" field to JUST the letter, e.g. "B"
-- Distractors must be plausible but clearly wrong based on the transcript
-- Never use "All of the above" or "None of the above"
-- Test comprehension of main ideas, specific details, or speaker intent
-- Example:
-  text: "What does the speaker recommend for improving vocabulary?"
-  options: ["A. Reading newspapers daily", "B. Using flashcard apps", "C. Watching English movies", "D. Joining a study group"]
-  answer: "A"`,
+
+QUESTION DESIGN PROCESS — follow these steps for EACH question:
+1. Identify a specific comprehension point in the transcript (a fact, opinion, cause, result, comparison, or sequence of events).
+2. Write a clear question stem that tests understanding of that point.
+3. Write the CORRECT answer — it may PARAPHRASE the transcript (do NOT just copy word-for-word).
+4. Write 3 DISTRACTORS following the rules below.
+
+DISTRACTOR RULES (THIS IS THE MOST IMPORTANT PART):
+- At least 3 of the 4 options MUST use information that IS mentioned in the transcript.
+- WRONG options take REAL details from the transcript but apply them to the WRONG context.
+  Example transcript: "John went to Paris on Monday. He visited Berlin on Friday."
+  Question: "When did John go to Paris?"
+  Options: A. Monday ✓ | B. Friday ✗ (real detail, wrong context) | C. Wednesday ✗ | D. Tuesday ✗
+  → "Friday" is an excellent distractor because it IS in the transcript but answers a DIFFERENT question.
+- Use IELTS-style distractor traps: self-corrections ("I mean..."), negations ("not the first but the second"), similar-sounding details, changed quantities, and paraphrased alternatives.
+- NEVER use obviously absurd, unrelated, or generic options (like random names, spelling questions, or trivial details).
+- NEVER use "All of the above" or "None of the above".
+- The correct answer should test COMPREHENSION, not just word-matching.
+
+FORMAT:
+- options: ["A. ...", "B. ...", "C. ...", "D. ..."]
+- answer: JUST the letter, e.g. "B"`,
 
     true_false: `### TRUE / FALSE (type: "true_false")
-- Write a clear declarative statement about the transcript content
-- Set options to: ["True", "False"]
-- Set "answer" to exactly "True" or "False"
-- "True" = the statement accurately reflects what was said in the transcript
-- "False" = the statement contradicts what was said in the transcript
-- Statements must test comprehension, not trivial word-matching
-- Example:
-  text: "The workshop will be held on Saturday morning."
-  options: ["True", "False"]
-  answer: "False"`,
+
+STATEMENT DESIGN PROCESS — follow these steps:
+1. Identify specific claims, facts, numbers, or descriptions in the transcript.
+2. For each question, write ONE clear declarative statement.
+
+STATEMENT RULES:
+- TRUE statements: PARAPHRASE something directly stated in the transcript. Do NOT copy verbatim — rephrase using synonyms or different sentence structures while keeping the same meaning.
+- FALSE statements: Take a REAL detail from the transcript and CHANGE one key element to make it incorrect.
+  Techniques for creating FALSE statements:
+  • Change a number/quantity: "15%" → "25%"
+  • Change a time/date: "Monday" → "Tuesday"
+  • Change a name/place: "Building A" → "Building B"
+  • Reverse a relationship: "increased" → "decreased"
+  • Swap two details: attribute X's quality to Y
+  Example transcript: "The meeting starts at 3 PM in Room 204."
+  FALSE statement: "The meeting starts at 2 PM." (changed time — detail IS from transcript context)
+- NEVER write vague or ambiguous statements.
+- Each statement must be clearly verifiable from the transcript.
+- Target distribution: approximately 50% True, 50% False.
+
+FORMAT:
+- options: ["True", "False"] (ALWAYS exactly these two strings)
+- answer: "True" or "False" (MUST be one of these exact strings)`,
 
     true_false_ng: `### TRUE / FALSE / NOT GIVEN (type: "true_false_ng")
-- Write a clear declarative statement
-- Set options to: ["True", "False", "Not Given"]
-- "True" = the transcript directly supports this statement
-- "False" = the transcript directly contradicts this statement
-- "Not Given" = the transcript does not provide enough information
-- Aim for a balanced distribution of True, False, and Not Given answers
-- Example:
-  text: "The company relocated its headquarters in 2019."
-  options: ["True", "False", "Not Given"]
-  answer: "Not Given"`,
+
+STATEMENT DESIGN PROCESS:
+1. Carefully analyze the transcript for: (a) what IS explicitly stated, (b) what is CONTRADICTED, (c) what is NOT addressed.
+2. Design statements for each category.
+
+CATEGORY DEFINITIONS (CRITICAL — understand the distinction):
+- TRUE: The transcript directly SUPPORTS this statement. The information is stated or can be clearly inferred. May be paraphrased.
+- FALSE: The transcript directly CONTRADICTS this statement. There MUST be a specific detail in the transcript that PROVES the statement wrong.
+  Example transcript: "The library opens at 9 AM."
+  FALSE: "The library opens at 8 AM." → Contradicted by "9 AM".
+- NOT GIVEN: The TOPIC may be mentioned, but the SPECIFIC claim is neither confirmed nor denied anywhere in the transcript.
+  Example transcript: "The library opens at 9 AM." (never mentions closing time)
+  NOT GIVEN: "The library closes at 6 PM." → Opening hours discussed, but closing time never mentioned.
+
+COMMON MISTAKE TO AVOID:
+- FALSE ≠ NOT GIVEN. "FALSE" requires the transcript to say the OPPOSITE. "NOT GIVEN" means the transcript simply does not address the specific claim.
+
+- Target distribution: roughly ⅓ True, ⅓ False, ⅓ Not Given.
+
+FORMAT:
+- options: ["True", "False", "Not Given"] (ALWAYS exactly these three strings)
+- answer: "True", "False", or "Not Given" (MUST be one of these exact strings)`,
 
     fill_blank: `### FILL IN THE BLANK (type: "fill_blank")
-- Write a statement with ONE gap marked as "_____"
-- The answer is 1-3 words taken DIRECTLY from the transcript (exact wording)
-- The surrounding context must clearly indicate what information fills the gap
-- Focus on key facts: names, numbers, dates, places, specific details
-- Set options to an empty array: []
-- Example:
-  text: "Participants must register before _____ to receive the early bird discount."
-  answer: "March 15th"`,
+
+QUESTION DESIGN PROCESS:
+1. Identify sentences containing key factual details (names, numbers, dates, places, technical terms, specific descriptions).
+2. Write a sentence that PARAPHRASES the original context, replacing ONE key detail with "_____".
+
+DESIGN RULES:
+- The answer MUST be 1–3 words taken DIRECTLY from the transcript (exact wording as spoken).
+- The blank must replace MEANINGFUL information — never function words like "the", "is", "and".
+- The surrounding sentence must provide enough context to indicate what type of information is missing.
+- Good targets: proper nouns, numbers, dates, time expressions, specific terms, measurements, place names.
+- The paraphrased sentence should use different wording from the transcript so students must LISTEN, not just pattern-match.
+
+FORMAT:
+- options: [] (empty array)
+- answer: Exact 1-3 words from the transcript
+- Example: text: "Participants need to complete registration by _____." / answer: "March 15th"`,
 
     sentence_completion: `### SENTENCE COMPLETION (type: "sentence_completion")
-- Write the beginning of a sentence that the student must complete
-- The answer is 1-4 words that complete the sentence, based on transcript content
-- Set options to an empty array: []
-- Example:
-  text: "The main reason for the delay was..."
-  answer: "a supply chain issue"`,
+
+QUESTION DESIGN PROCESS:
+1. Identify key ideas, conclusions, causes, results, or opinions in the transcript.
+2. Write the beginning of a sentence that points toward a specific piece of information.
+
+DESIGN RULES:
+- The sentence beginning must clearly direct the student toward ONE specific answer.
+- The answer is 1–4 words that naturally and grammatically complete the sentence.
+- Focus on: causes/reasons ("The delay was caused by..."), results ("As a result, the team decided to..."), purposes ("The main goal of the project is..."), opinions ("The speaker believes that the most important factor is...").
+- The answer must be verifiable from the transcript content.
+
+FORMAT:
+- options: [] (empty array)
+- answer: 1-4 words that complete the sentence
+- Example: text: "The speaker suggests that the most effective study method is..." / answer: "regular spaced repetition"`,
 
     short_answer: `### SHORT ANSWER (type: "short_answer")
-- Ask a direct WH-question (What / Where / When / Who / How many / How much)
-- The answer should be 1-5 words
-- Set options to an empty array: []
-- Target specific factual information from the transcript
-- Example:
-  text: "How many participants attended the conference?"
-  answer: "approximately 200"`,
+
+QUESTION DESIGN PROCESS:
+1. Identify specific factual details in the transcript.
+2. Write direct WH-questions targeting those details.
+
+DESIGN RULES:
+- Use WH-questions: What / Where / When / Who / How many / How much / Why / How.
+- Each question must have ONE clear, unambiguous correct answer.
+- The answer should be 1–5 words — a concise factual response.
+- Target SPECIFIC, concrete information: quantities, names, locations, dates, durations, prices.
+- Avoid questions that could have multiple valid answers.
+
+FORMAT:
+- options: [] (empty array)
+- answer: 1-5 word factual answer
+- Example: text: "How long does the orientation program last?" / answer: "three days"`,
 
     matching: `### MATCHING (type: "matching")
-- Create a MATCHING exercise with a SHARED set of options for ALL questions
-- Choose a theme from the transcript (e.g., speakers→roles, events→dates, places→descriptions)
-- Create a SHARED options list with MORE options than questions (e.g., 5 questions → 7 options A-G as distractors)
-- EVERY question MUST use the EXACT SAME options array
-- Each question text describes ONE item to match (e.g., "Match: Speaker 1's main topic")
-- "answer" is the correct letter for that item
-- Not every option is used — extras are distractors
-- Example (3 questions sharing 4 options):
-  ALL questions share options: ["A. Marketing department", "B. Finance department", "C. Human Resources", "D. IT Support"]
-  Q1: text: "Match: John's department" / options: [same 4] / answer: "B"
-  Q2: text: "Match: Sarah's department" / options: [same 4] / answer: "A"
-  Q3: text: "Match: David's department" / options: [same 4] / answer: "C"
-  (Option D is the distractor — not matched to anyone)`,
+
+QUESTION DESIGN PROCESS:
+1. Identify a clear CATEGORY of matchable items in the transcript (speakers→topics, people→roles, places→features, events→dates, items→descriptions).
+2. Build a SHARED list of options with MORE options than questions (for distractors).
+3. Create questions that ask students to match each item to its correct option.
+
+MATCHING DESIGN RULES (CRITICAL):
+- ALL items and ALL options (including distractors) MUST come from the transcript.
+  Example: If matching speakers to their professions, and the transcript mentions doctor, teacher, engineer, lawyer, and architect — use ALL of them as options, even if only 4 questions are needed. The extra profession is a distractor.
+- EVERY question MUST use the EXACT SAME options array (shared options list).
+- Include at least 2 MORE options than questions (e.g., 5 questions → 7 options, 4 questions → 6 options).
+- Each question's "text" should clearly identify WHAT needs to be matched (e.g., "Speaker A's main area of expertise").
+- Not every option needs to be used — unused options are distractors.
+- Distractors must be PLAUSIBLE — they are real items from the transcript, just not the correct match for that specific question.
+
+FORMAT:
+- All questions share identical options: ["A. ...", "B. ...", "C. ...", "D. ...", "E. ...", ...]
+- answer: The correct letter, e.g. "C"`,
 
     table_completion: `### TABLE / FORM COMPLETION (type: "table_completion")
-- Create questions that simulate filling in cells of a table, form, or booking sheet
-- Each question represents ONE blank cell in the table
-- Format the "text" as: "[Form/Table context] — [Row or field label]: _____"
-- Answer is 1-3 words taken DIRECTLY from the transcript
-- Questions should logically relate as parts of the same form
-- Set options to an empty array: []
-- Examples:
-  text: "Booking Form — Guest name: _____" / answer: "Dr. Sarah Chen"
-  text: "Course Registration — Course code: _____" / answer: "BUS204"`,
+
+QUESTION DESIGN PROCESS:
+1. Identify structured/organized information in the transcript: schedules, booking details, registration info, comparison data, surveys, price lists.
+2. Design a realistic table or form and create questions for each blank cell.
+
+DESIGN RULES:
+- Each question = ONE blank cell in a table, form, or structured document.
+- Format the text as: "[Table/Form Title] — [Row/Column label]: _____"
+- The answer MUST be 1-3 words taken DIRECTLY from the transcript.
+- ALL questions should relate to each other as parts of the SAME table/form — they tell a cohesive story.
+- The table structure must feel realistic (like an actual booking form, registration sheet, schedule, or comparison chart).
+- Good targets: names, dates, times, reference numbers, prices, locations, phone numbers, email addresses, course codes.
+
+FORMAT:
+- options: [] (empty array)
+- answer: Exact 1-3 words from the transcript
+- Example: text: "Course Registration Form — Student ID: _____" / answer: "STU-4827"`,
 
     note_completion: `### NOTE / OUTLINE COMPLETION (type: "note_completion")
-- Create questions that simulate completing organized lecture notes or an outline
-- Each question represents ONE blank in structured notes
-- Format: "[Notes topic] — [bullet/heading]: _____"
-- Answer is 1-3 words from the transcript
-- Questions follow the logical structure of notes (headings then sub-points)
-- Set options to an empty array: []
-- Examples:
-  text: "Lecture: Marine Biology — Main food source for whales: _____" / answer: "krill and plankton"
-  text: "Meeting Notes — Next deadline: _____" / answer: "end of November"`
+
+QUESTION DESIGN PROCESS:
+1. Identify the logical structure of the transcript (main topics → sub-topics → key details).
+2. Create a set of structured notes/outline with blanks for key information.
+
+DESIGN RULES:
+- Each question = ONE blank in organized notes or a summary outline.
+- Format: "[Topic/Section heading] — [bullet or sub-heading]: _____"
+- The answer MUST be 1-3 words from the transcript.
+- Questions should follow the LOGICAL FLOW of the transcript (introduction → main points → details → conclusion).
+- Notes should feel like what a student would actually write during a lecture.
+- Good targets: key terms, definitions, statistics, examples, names of theories/concepts, conclusions.
+
+FORMAT:
+- options: [] (empty array)
+- answer: Exact 1-3 words from the transcript
+- Example: text: "Environmental Impact — Primary cause of coral bleaching: _____" / answer: "rising sea temperatures"`
   };
 
   const examContexts = {
-    IELTS: `You are a certified IELTS examiner creating an official IELTS Listening practice test.
-IELTS LISTENING STANDARDS:
+    IELTS: `You are a senior IELTS examiner with 15+ years of experience at the British Council, creating an official IELTS Listening practice test.
+
+IELTS LISTENING STANDARDS (strictly follow real IELTS exam conventions):
 - Questions MUST progress chronologically following the transcript
-- Language register: formal, precise, matching real IELTS papers
-- Fill-in-blank answers: NO MORE THAN THREE WORDS AND/OR A NUMBER
-- Multiple choice: exactly 4 options (A-D)
-- Difficulty progression: questions become harder toward the end
-- Distribution: 30% easy, 50% medium, 20% challenging
-- Distractors in MCQ should be mentioned in audio but not the correct answer to the specific question`,
+- Language register: formal, precise, matching actual Cambridge IELTS papers
+- Fill-in-blank / note / table answers: NO MORE THAN THREE WORDS AND/OR A NUMBER
+- Multiple choice: exactly 4 options (A-D), with at least 3 distractors from the audio
+- Difficulty progression within the section: first questions are easier, last questions are harder
+- IELTS distractor techniques you MUST use:
+  • Speaker self-corrections: "Actually, I meant..." — the initial wrong answer is a trap
+  • Negations: "It's not X, it's Y" — X is the trap
+  • Conditional statements: "If we had done X... but instead we chose Y"
+  • Similar-sounding information: details that sound alike but differ in meaning
+  • Paraphrasing: the correct answer rephrases the transcript, not a word-for-word copy
+  • Time/sequence traps: past vs. present vs. future plans`,
 
-    TOEIC: `You are a TOEIC exam specialist creating a Listening comprehension practice test.
-TOEIC LISTENING STANDARDS:
-- Focus on business, workplace, and daily life scenarios
-- Test practical English comprehension for professional contexts
-- Options should reflect realistic workplace and everyday situations
-- Difficulty level: intermediate to upper-intermediate
-- Questions should feel natural and contextualized, matching official TOEIC style
-- Pay attention to paraphrasing — correct answers often rephrase transcript content`,
+    TOEIC: `You are an ETS-certified TOEIC test developer creating an official TOEIC Listening comprehension practice test.
 
-    VSTEP: `You are a VSTEP exam specialist creating a Listening test following Vietnam's national English proficiency framework.
-VSTEP LISTENING STANDARDS:
-- Target levels B1 to C1 comprehension skills
-- Focus on academic and semi-formal contexts
-- Questions must match Vietnamese university English exam standards
-- Ensure clear, well-structured questions with unambiguous answers
-- Include both detail-oriented and inference-based questions`,
+TOEIC LISTENING STANDARDS (following ETS Evidence-Centered Design methodology):
+- Focus on business, workplace, and everyday life communication scenarios
+- Test practical English comprehension for professional and social contexts
+- Correct answers often PARAPHRASE the audio using different vocabulary or sentence structures
+- TOEIC distractor techniques:
+  • Use words/phrases that SOUND similar to key words in the audio
+  • Include information mentioned in the audio but for a DIFFERENT context
+  • Offer plausible business-context answers that weren't actually stated
+- Difficulty: intermediate to upper-intermediate (450-800 TOEIC score range)
+- Questions should reflect real workplace situations: meetings, phone calls, announcements, presentations`,
 
-    GENERAL: `You are a university English professor designing a listening comprehension exam for undergraduate students.
+    VSTEP: `You are a VSTEP exam specialist certified by Vietnam's Ministry of Education, creating a VSTEP Listening test.
+
+VSTEP LISTENING STANDARDS (following the Vietnamese Standardized Test of English Proficiency framework):
+- 3-part structure: Part 1 (short dialogues), Part 2 (extended dialogues), Part 3 (lectures/talks)
+- Target proficiency levels B1 to C1
+- Difficulty distribution: ~40% B1 level, ~34% B2 level, ~26% C1 level
+- Focus on: listening for details, listening for gist/main ideas, and listening for attitudes/inferring meaning
+- Topics: daily life, academic subjects, semi-formal and formal contexts
+- All questions are multiple-choice with 4 options (A-D)
+- Questions must be clear, well-structured, and have unambiguous correct answers`,
+
+    GENERAL: `You are a university English professor with expertise in language assessment, designing a listening comprehension exam.
+
 UNIVERSITY EXAM STANDARDS:
-- Cover multiple cognitive skills: factual recall, inference, and critical analysis
+- Cover multiple cognitive skills: factual recall, inference, analysis, and evaluation
 - Questions must be professional, clear, and academically rigorous
-- Mix difficulty levels for a well-balanced assessment
-- Follow standard university exam formatting conventions
-- Include questions that test both explicit and implicit information`
+- Balanced difficulty: 30% straightforward, 50% moderate, 20% challenging
+- Follow standard language assessment formatting conventions
+- Test both explicit information (directly stated) and implicit information (inferred/implied)
+- All options and distractors must be well-crafted and plausible`
   };
 
   const typeRule = typeInstructions[questionType] || '';
 
-  return `${examContexts[examType] || examContexts.GENERAL}
+  const partNote = partLabel
+    ? `\nCRITICAL PART CONSTRAINT: This transcript is from **${partLabel}** of the listening test. You MUST generate ALL questions based ONLY on this part's content. Do NOT reference or use information from other parts.\n`
+    : '';
 
+  const customNote = customInstruction
+    ? `\nUSER'S CUSTOM INSTRUCTIONS (follow these carefully alongside the rules above):\n"""\n${customInstruction}\n"""\n`
+    : '';
+
+  return `${examContexts[examType] || examContexts.GENERAL}
+${partNote}
 YOUR TASK: Generate EXACTLY ${count} "${questionType}" questions based on the audio transcript below.
 
 ALL ${count} questions MUST be of type "${questionType}".
-
-FORMAT RULES:
+${customNote}
+QUESTION TYPE RULES:
 
 ${typeRule}
 
-CRITICAL RULES:
-1. Every answer MUST be directly verifiable from the transcript.
-2. Questions follow the chronological order of the transcript.
-3. Each question object MUST have: number (1-${count}), text (string), type ("${questionType}"), options (string[]), answer (string), explanation (string), transcript_quote (string).
+CRITICAL OUTPUT RULES:
+1. Every answer MUST be directly verifiable from the transcript — no assumptions, no outside knowledge.
+2. Questions MUST follow the chronological order of the transcript.
+3. Each question object MUST contain ALL these fields: number (1-${count}), text (string), type ("${questionType}"), options (string[]), answer (string), explanation (string), transcript_quote (string).
 4. For mcq/matching: "options" = labeled choices ["A. ...", "B. ...", ...].
 5. For fill_blank/sentence_completion/short_answer/table_completion/note_completion: "options" = [].
 6. For true_false: "options" MUST be exactly ["True", "False"]. For true_false_ng: "options" MUST be exactly ["True", "False", "Not Given"]. The "answer" MUST be one of these exact strings.
-7. "explanation" = a clear explanation of WHY the answer is correct (2-3 sentences).
-8. "transcript_quote" = the EXACT sentence or phrase from the transcript that contains/supports the correct answer. Copy verbatim from the transcript (5-40 words). This is used to highlight the relevant part of the transcript for the student.
-9. Do NOT repeat information across questions. Vary the content covered.
-10. Questions must feel like a real ${examType} exam.
-11. Generate DIVERSE questions covering DIFFERENT parts of the transcript.
+7. "explanation" MUST follow this format:
+   FIRST: Quote the relevant passage from the transcript (in quotation marks).
+   THEN: Explain why the answer is correct.
+   THEN (for MCQ/matching/T-F): Explain why each wrong option is incorrect, referencing the transcript.
+   Example: "The speaker says: 'We moved the deadline to Friday.' This confirms the answer is Friday. Option A (Monday) is mentioned earlier as the original deadline, and Option C (Wednesday) refers to the team meeting day — both are from the audio but answer different questions."
+8. "transcript_quote" = the EXACT sentence(s) from the transcript that contain or support the correct answer. Copy VERBATIM (5-50 words). This will be highlighted for the student.
+9. Do NOT repeat information across questions. Cover DIFFERENT parts of the transcript content.
+10. Questions must be INDISTINGUISHABLE from a real ${examType} exam paper.
+11. NEVER create trivial questions (e.g., "How do you spell this name?" or questions about pronunciation).
 
 TRANSCRIPT:
 """
@@ -220,8 +330,8 @@ ${transcript}
 Return JSON: { "questions": [ ...${count} question objects... ] }`;
 }
 
-async function generateQuestionsForType(transcript, examType, questionType, count) {
-  const prompt = buildSingleTypePrompt(transcript, examType, questionType, count);
+async function generateQuestionsForType(transcript, examType, questionType, count, partLabel, customInstruction) {
+  const prompt = buildSingleTypePrompt(transcript, examType, questionType, count, partLabel, customInstruction);
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash',
     contents: prompt,
@@ -253,6 +363,67 @@ async function generateQuestionsForType(transcript, examType, questionType, coun
   });
   const parsed = JSON.parse(response.text || '{}');
   return (parsed.questions || []).map(q => ({ ...q, type: questionType }));
+}
+
+function splitTranscriptByParts(transcript) {
+  if (!transcript) return [];
+
+  const patterns = [
+    /(?:^|\n)\s*={2,}\s*(?:PART|Part)\s*(\d+)\s*={2,}\s*/g,
+    /(?:^|\n)\s*(?:PART|Part|SECTION|Section)\s+(\d+)\s*(?:[:\-—.])?\s*/g,
+    /(?:^|\n)\s*(?:Part|PART|Section|SECTION)\s+(\d+)\s*$/gm,
+  ];
+
+  let matches = [];
+  for (const pattern of patterns) {
+    matches = [...transcript.matchAll(pattern)];
+    if (matches.length >= 2) break;
+  }
+
+  if (matches.length < 2) {
+    console.log(`[split] No multi-part structure detected`);
+    return [{ label: 'Full Transcript', text: transcript.trim() }];
+  }
+
+  const parts = [];
+  for (let i = 0; i < matches.length; i++) {
+    const start = matches[i].index + matches[i][0].length;
+    const end = i + 1 < matches.length ? matches[i + 1].index : transcript.length;
+    const text = transcript.slice(start, end).trim();
+    if (text) parts.push({ label: `Part ${matches[i][1]}`, text });
+  }
+  console.log(`[split] Detected ${parts.length} parts: ${parts.map(p => p.label).join(', ')}`);
+  return parts.length > 0 ? parts : [{ label: 'Full Transcript', text: transcript.trim() }];
+}
+
+function distributeTypesToParts(parts, types, perType) {
+  const assignments = [];
+  if (!parts.length || !types.length) return assignments;
+
+  if (types.length <= parts.length) {
+    const ppt = Math.floor(parts.length / types.length);
+    const rem = parts.length % types.length;
+    let pi = 0;
+    for (let i = 0; i < types.length; i++) {
+      const n = ppt + (i < rem ? 1 : 0);
+      const merged = parts.slice(pi, pi + n).map(p => p.text).join('\n\n');
+      const labels = parts.slice(pi, pi + n).map(p => p.label).join(' + ');
+      assignments.push({ questionType: types[i], transcript: merged, partLabel: labels, count: perType });
+      pi += n;
+    }
+  } else {
+    const tpp = Math.floor(types.length / parts.length);
+    const rem = types.length % parts.length;
+    let ti = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const n = tpp + (i < rem ? 1 : 0);
+      for (let j = 0; j < n; j++) {
+        assignments.push({ questionType: types[ti], transcript: parts[i].text, partLabel: parts[i].label, count: perType });
+        ti++;
+      }
+    }
+  }
+  return assignments;
 }
 
 async function startServer() {
@@ -329,7 +500,7 @@ async function startServer() {
       UNIQUE(user_id, question_id)
     );
   `);
-  try { db.exec('ALTER TABLE questions ADD COLUMN transcript_quote TEXT DEFAULT ""'); } catch {}
+  try { db.exec('ALTER TABLE questions ADD COLUMN transcript_quote TEXT DEFAULT ""'); } catch { }
 
   // ---- Auth ----
   app.post('/api/auth/login', (req, res) => {
@@ -478,7 +649,7 @@ async function startServer() {
     res.json(questions.map(q => ({ ...q, options: JSON.parse(q.options || '[]') })));
   });
 
-  // ---- Gemini: Transcribe audio ----
+  // ---- Gemini: Transcribe audio (File API for large files) ----
   app.post('/api/transcribe', async (req, res) => {
     const { filename } = req.body;
     if (!filename) return res.status(400).json({ error: 'No filename provided' });
@@ -487,27 +658,64 @@ async function startServer() {
     const filePath = path.join(uploadsDir, filename);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Audio file not found on server' });
 
-    console.log(`[transcribe] Reading file: ${filename}`);
-    try {
-      const audioBuffer = fs.readFileSync(filePath);
-      const audioBase64 = audioBuffer.toString('base64');
-      const ext = path.extname(filename).toLowerCase();
-      const mimeMap = { '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.flac': 'audio/flac', '.webm': 'audio/webm' };
-      const mimeType = mimeMap[ext] || 'audio/mpeg';
+    const ext = path.extname(filename).toLowerCase();
+    const mimeMap = { '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.flac': 'audio/flac', '.webm': 'audio/webm' };
+    const mimeType = mimeMap[ext] || 'audio/mpeg';
+    const fileSizeKB = fs.statSync(filePath).size / 1024;
 
-      console.log(`[transcribe] Sending to Gemini (${(audioBuffer.length / 1024).toFixed(0)} KB, ${mimeType})`);
+    console.log(`[transcribe] File: ${filename} (${fileSizeKB.toFixed(0)} KB, ${mimeType})`);
+
+    const transcribePrompt = `Transcribe this English audio accurately and completely.
+
+CRITICAL FORMATTING RULES:
+1. If the audio contains distinct sections or parts (like IELTS Listening Part 1, Part 2, Part 3, Part 4), you MUST label each section clearly with "=== PART X ===" on its own line BEFORE the content of that section.
+2. Use proper punctuation and paragraph breaks within each part.
+3. If there are clearly distinct speakers, label them (e.g., "Speaker 1:", "Speaker 2:").
+4. Output ONLY the transcript text. Do not add commentary or timestamps.
+5. Make sure every word is captured — do NOT skip or summarize any section.
+
+Example format for multi-part audio:
+=== PART 1 ===
+Speaker 1: Hello, welcome to...
+Speaker 2: Thank you...
+
+=== PART 2 ===
+Speaker 1: Now let's discuss...`;
+
+    try {
+      console.log(`[transcribe] Uploading to Gemini File API...`);
+      const uploadResult = await ai.files.upload({
+        file: filePath,
+        config: { mimeType, displayName: filename }
+      });
+      console.log(`[transcribe] Upload done: ${uploadResult.name}, waiting for processing...`);
+
+      let file = uploadResult;
+      let waited = 0;
+      while (file.state === 'PROCESSING') {
+        await new Promise(r => setTimeout(r, 3000));
+        waited += 3;
+        file = await ai.files.get({ name: file.name });
+        console.log(`[transcribe] Processing... (${waited}s)`);
+      }
+      if (file.state === 'FAILED') throw new Error('Gemini failed to process the audio file');
+
+      console.log(`[transcribe] File ready (state: ${file.state}), generating transcript...`);
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: [{
           role: 'user',
           parts: [
-            { inlineData: { data: audioBase64, mimeType } },
-            { text: 'Transcribe this English audio accurately and completely. Output ONLY the transcript text with proper punctuation and paragraph breaks. Do not add commentary, timestamps, or speaker labels unless clearly distinct speakers are present.' }
+            { fileData: { fileUri: file.uri, mimeType: file.mimeType } },
+            { text: transcribePrompt }
           ]
         }]
       });
+
+      ai.files.delete({ name: file.name }).catch(() => {});
+
       const text = response.text || '';
-      console.log(`[transcribe] Success: ${text.slice(0, 100)}...`);
+      console.log(`[transcribe] Success (${text.length} chars): ${text.slice(0, 120)}...`);
       res.json({ text });
     } catch (e) {
       console.error('[transcribe] Error:', e.message);
@@ -515,47 +723,68 @@ async function startServer() {
     }
   });
 
-  // ---- Gemini: Generate questions (parallel per-type) ----
+  // ---- Gemini: Generate questions (part-aware parallel) ----
   app.post('/api/generate-questions', async (req, res) => {
-    const { transcript, examType, questionTypes, questionsPerType } = req.body;
+    const { transcript, examType, questionTypes, questionsPerType, customInstructions } = req.body;
     if (!GEMINI_KEY) return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on server' });
     if (!transcript) return res.status(400).json({ error: 'No transcript provided' });
 
     const types = Array.isArray(questionTypes) && questionTypes.length > 0 ? questionTypes : ['mcq'];
     const perType = Math.min(Math.max(Number(questionsPerType) || 10, 1), 50);
-    const total = types.length * perType;
+    const ciMap = customInstructions || {};
 
-    console.log(`[generate] ${examType} | ${types.length} types × ${perType}/type = ${total} total | transcript: ${transcript.length} chars`);
+    const parts = splitTranscriptByParts(transcript);
+    const hasParts = parts.length > 1;
+
+    let assignments;
+    if (hasParts) {
+      assignments = distributeTypesToParts(parts, types, perType);
+      assignments.forEach(a => { a.customInstruction = ciMap[a.questionType] || ciMap._global || null; });
+      console.log(`[generate] Part-aware mode: ${parts.length} parts detected, ${assignments.length} assignments`);
+      assignments.forEach(a => console.log(`  → ${a.partLabel} ↔ ${a.questionType} (${a.count} Qs)${a.customInstruction ? ' [+custom]' : ''}`));
+    } else {
+      assignments = types.map(t => ({ questionType: t, transcript: transcript, partLabel: null, count: perType, customInstruction: ciMap[t] || ciMap._global || null }));
+      console.log(`[generate] Single transcript mode: ${types.length} types × ${perType}/type`);
+    }
+
+    const total = assignments.reduce((s, a) => s + a.count, 0);
+    console.log(`[generate] ${examType} | ${total} total questions | transcript: ${transcript.length} chars`);
 
     try {
       const results = await Promise.allSettled(
-        types.map(type => {
-          console.log(`[generate] Starting ${type} (${perType} questions)...`);
-          return generateQuestionsForType(transcript, examType, type, perType);
+        assignments.map(a => {
+          console.log(`[generate] Starting ${a.questionType}${a.partLabel ? ` (${a.partLabel})` : ''} (${a.count} questions)${a.customInstruction ? ' [+custom]' : ''}...`);
+          return generateQuestionsForType(a.transcript, examType, a.questionType, a.count, a.partLabel, a.customInstruction);
         })
       );
 
       const allQuestions = [];
       let num = 1;
       const errors = [];
-      for (let i = 0; i < types.length; i++) {
+      for (let i = 0; i < assignments.length; i++) {
         const r = results[i];
+        const a = assignments[i];
         if (r.status === 'fulfilled' && r.value?.length) {
-          console.log(`[generate] ✓ ${types[i]}: ${r.value.length} questions`);
-          for (const q of r.value) { q.number = num++; allQuestions.push(q); }
+          console.log(`[generate] ✓ ${a.questionType}${a.partLabel ? ` (${a.partLabel})` : ''}: ${r.value.length} questions`);
+          for (const q of r.value) {
+            q.number = num++;
+            if (a.partLabel) q.part_label = a.partLabel;
+            allQuestions.push(q);
+          }
         } else {
           const msg = r.status === 'rejected' ? r.reason?.message : 'No questions returned';
-          console.error(`[generate] ✗ ${types[i]}: ${msg}`);
-          errors.push(`${types[i]}: ${msg}`);
+          console.error(`[generate] ✗ ${a.questionType}: ${msg}`);
+          errors.push(`${a.questionType}: ${msg}`);
         }
       }
 
       if (!allQuestions.length) throw new Error('All generation failed: ' + errors.join('; '));
 
+      const partInfo = hasParts ? ` (${parts.length} Parts)` : '';
       console.log(`[generate] Done: ${allQuestions.length}/${total} questions generated`);
       res.json({
         section_number: 1,
-        instruction: `${examType} Listening Comprehension — ${allQuestions.length} Questions`,
+        instruction: `${examType} Listening Comprehension${partInfo} — ${allQuestions.length} Questions`,
         questions: allQuestions
       });
     } catch (e) {
@@ -566,13 +795,13 @@ async function startServer() {
 
   // ---- Gemini: Regenerate single type ----
   app.post('/api/regenerate-type', async (req, res) => {
-    const { transcript, examType, questionType, count } = req.body;
+    const { transcript, examType, questionType, count, customInstruction } = req.body;
     if (!GEMINI_KEY) return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
     if (!transcript) return res.status(400).json({ error: 'No transcript provided' });
     const perType = Math.min(Math.max(Number(count) || 10, 1), 50);
-    console.log(`[regenerate-type] ${questionType} × ${perType}`);
+    console.log(`[regenerate-type] ${questionType} × ${perType}${customInstruction ? ' [+custom]' : ''}`);
     try {
-      const questions = await generateQuestionsForType(transcript, examType, questionType, perType);
+      const questions = await generateQuestionsForType(transcript, examType, questionType, perType, null, customInstruction || null);
       console.log(`[regenerate-type] ✓ ${questionType}: ${questions.length} questions`);
       res.json({ questions });
     } catch (e) {

@@ -77,6 +77,8 @@ const state = {
   practiceQuestions: [], practiceAnswers: {},
   practiceScore: null, practiceSubmitted: false,
   practiceAudioDuration: 0, practiceStartTime: 0, practiceEndTime: 0,
+  // AI Agent custom instructions per question type
+  customInstructions: {},
 };
 
 // ===================== API =====================
@@ -387,6 +389,27 @@ function renderStep2() {
       </div>
     </div></div>
 
+    <div class="card card-sm"><div class="card-body">
+      <div class="card-header">
+        <h4>${icon('smart_toy', 'text-primary')} AI Agent — Custom Instructions</h4>
+        <button class="btn-auto" data-action="toggle-ai-agent" id="ai-agent-toggle">${icon('expand_more')} ${Object.values(state.customInstructions).some(v => v) ? 'Edit' : 'Open'}</button>
+      </div>
+      <p style="font-size:13px;color:var(--slate-500);margin-bottom:12px">Tell the AI exactly how to create questions. You can give instructions per question type or for all types at once.</p>
+      <div id="ai-agent-panel" class="ai-agent-panel" style="display:none">
+        <div style="margin-bottom:16px">
+          <label class="form-label">Instructions for ALL question types (global)</label>
+          <textarea class="form-input ai-instruction-input" id="ci-global" rows="2" placeholder="e.g., Focus on vocabulary related to travel and tourism...">${esc(state.customInstructions._global || '')}</textarea>
+        </div>
+        ${state.selectedQuestionTypes.map(tid => {
+          const tl = TYPE_LABELS[tid] || tid;
+          return `<div style="margin-bottom:12px">
+            <label class="form-label">${icon(config.types.find(t => t.id === tid)?.icon || 'help')} ${tl}</label>
+            <textarea class="form-input ai-instruction-input" id="ci-${tid}" rows="2" placeholder="e.g., For ${tl}: create questions focusing on...">${esc(state.customInstructions[tid] || '')}</textarea>
+          </div>`;
+        }).join('')}
+      </div>
+    </div></div>
+
     <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px">
       <button class="btn btn-ghost" data-action="back-to-step1">${icon('arrow_back')} Back</button>
       <button class="btn btn-primary btn-lg" data-action="generate-questions" id="generate-btn" ${canGenerate ? '' : 'disabled'}>
@@ -425,7 +448,7 @@ function renderStep3() {
           <div id="review-panels">
             ${groups.map((gr, gi) => `<div class="type-panel" data-type-panel="${gr.type}" style="display:${gi === 0 ? 'block' : 'none'}">
               <div class="type-panel-header">
-                <span>${TYPE_LABELS[gr.type] || gr.type} — ${gr.questions.length} questions</span>
+                <span>${TYPE_LABELS[gr.type] || gr.type}${gr.questions[0]?.q?.part_label ? ` (${gr.questions[0].q.part_label})` : ''} — ${gr.questions.length} questions</span>
                 <button class="btn btn-ghost btn-sm" data-action="regenerate-type" data-rtype="${gr.type}">${icon('refresh')} Regenerate this section</button>
               </div>
               ${gr.questions.map(({ q, idx }) => renderReviewQuestion(q, idx)).join('')}
@@ -449,13 +472,14 @@ function renderReviewQuestion(q, idx) {
     <div class="review-card-header">
       <div class="q-num-badge">${q.number}</div>
       <span class="badge badge-primary">${TYPE_LABELS[t] || t}</span>
+      ${q.part_label ? `<span class="badge badge-slate">${esc(q.part_label)}</span>` : ''}
     </div>
     <input type="text" class="review-input" data-q-idx="${idx}" data-q-field="text" value="${esc(q.text)}" />
     ${hasOptions ? `<div class="review-options">${(q.options || []).map((opt, oi) => `
       <div class="review-option-row"><input type="text" class="form-input" data-q-idx="${idx}" data-q-opt="${oi}" value="${esc(opt)}" /></div>`).join('')}</div>` : ''}
     <div class="review-answer-row">
       <div><label class="form-label">Correct Answer</label>
-        ${isTF ? `<select class="form-input" data-q-idx="${idx}" data-q-field="answer">${(q.options || []).map(o =>
+        ${isTF ? `<select class="form-input" data-q-idx="${idx}" data-q-field="answer">${(t === 'true_false_ng' ? ['True', 'False', 'Not Given'] : ['True', 'False']).map(o =>
           `<option${q.answer === o ? ' selected' : ''}>${o}</option>`).join('')}</select>`
         : `<input type="text" class="form-input" data-q-idx="${idx}" data-q-field="answer" value="${esc(q.answer)}" />`}</div>
     </div>
@@ -1145,18 +1169,32 @@ document.addEventListener('click', async (e) => {
     } catch (err) { alert('Transcribe failed: ' + err.message); }
     el.innerHTML = `${icon('auto_fix')} Auto-Transcribe`; el.disabled = false;
   }
+  if (action === 'toggle-ai-agent') {
+    const panel = document.getElementById('ai-agent-panel');
+    if (panel) { panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; }
+  }
   if (action === 'generate-questions') {
     const ta = document.getElementById('transcript-input');
     if (ta) state.transcript = ta.value;
     if (!state.transcript) { alert('Please add a transcript first.'); return; }
     if (!state.selectedQuestionTypes.length) { alert('Please select at least one question type.'); return; }
+    // Collect AI Agent custom instructions
+    const ci = {};
+    const globalEl = document.getElementById('ci-global');
+    if (globalEl?.value?.trim()) ci._global = globalEl.value.trim();
+    state.selectedQuestionTypes.forEach(tid => {
+      const el2 = document.getElementById(`ci-${tid}`);
+      if (el2?.value?.trim()) ci[tid] = el2.value.trim();
+    });
+    state.customInstructions = ci;
     const btn = document.getElementById('generate-btn');
     const origHTML = btn.innerHTML;
     btn.textContent = 'Generating...'; btn.disabled = true;
     try {
       const section = await api.post('/api/generate-questions', {
         transcript: state.transcript, examType: state.examType,
-        questionTypes: state.selectedQuestionTypes, questionsPerType: state.questionCount
+        questionTypes: state.selectedQuestionTypes, questionsPerType: state.questionCount,
+        customInstructions: Object.keys(ci).length ? ci : undefined
       });
       if (!section.questions?.length) throw new Error('AI returned no questions. Try a longer transcript.');
       state.generatedData = section;
